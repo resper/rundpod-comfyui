@@ -1,102 +1,52 @@
-name: Build and Push ComfyUI Docker Image
+name: Build and Push Docker Image
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main ]
     paths:
       - 'Dockerfile'
+      - 'scripts/**'
       - '.github/workflows/docker-build.yml'
-  pull_request:
-    branches:
-      - main
-      - master
-  workflow_dispatch:  # Ermöglicht manuelles Triggern
-    inputs:
-      tag_suffix:
-        description: 'Optional tag suffix (e.g., -dev, -test)'
-        required: false
-        default: ''
+  workflow_dispatch:
 
 env:
-  DOCKER_REGISTRY: docker.io
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/comfyui-runpod
+  IMAGE_NAME: comfyui-runpod
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
+    
     steps:
-      # Repository auschecken
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # Docker Buildx einrichten (für Multi-Platform Builds)
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/amd64
-
-      # Bei DockerHub anmelden
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # Metadaten für Tags und Labels generieren
-      - name: Generate Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value={{date 'YYYYMMDD'}}-{{sha}}
-            type=raw,value={{branch}}-{{date 'YYYYMMDD'}}${{ github.event.inputs.tag_suffix }}
-
-      # Build und Push für AMD64
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            BUILDKIT_PROGRESS=plain
-
-      # DockerHub README aktualisieren (optional)
-      - name: Update DockerHub README
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-        uses: peter-evans/dockerhub-description@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_USERNAME }}/comfyui-runpod
-          readme-filepath: ./README.md
-          short-description: "ComfyUI für Runpod mit vorinstallierten Custom Nodes und Dependencies"
-
-      # Ausgabe der Image-Tags
-      - name: Output image tags
-        run: |
-          echo "### Docker Image Tags erstellt:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Image kann nun auf Runpod verwendet werden mit:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to DockerHub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value={{date 'YYYYMMDD-HHmmss'}}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:buildcache
+        cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+        platforms: linux/amd64

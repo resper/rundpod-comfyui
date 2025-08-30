@@ -1,232 +1,373 @@
-# ComfyUI Docker für Runpod
+# ComfyUI RunPod Docker Setup mit GitHub Actions
 
-Dieses Repository enthält ein Docker-Image für ComfyUI, optimiert für die Verwendung auf Runpod mit persistentem Speicher in `/workspace`.
+## Übersicht
+Diese Anleitung zeigt, wie Sie ComfyUI in der neuesten Version auf RunPod mit persistentem Storage einrichten, ohne lokale Entwicklerumgebung.
 
-## ⚠️ WICHTIG: Persistenz-Strategie
-
-**Dieses Image verwendet eine spezielle Strategie für maximale Persistenz:**
-
-1. **ComfyUI wird NICHT im Docker-Image installiert**, sondern beim ersten Start in `/workspace/ComfyUI`
-2. **Alle Custom Nodes** werden direkt in `/workspace/ComfyUI/custom_nodes` installiert
-3. **Alle Modelle** bleiben in `/workspace/ComfyUI/models`
-4. **Python Dependencies** sind im Image vorinstalliert für schnelleren Start
-
-**Vorteile:**
-- ✅ Custom Nodes überleben JEDEN Neustart
-- ✅ Modelle bleiben immer erhalten
-- ✅ Workflows und Einstellungen persistent
-- ✅ Updates ohne Image-Rebuild möglich
-
-## Features
-
-- ✅ **Neueste ComfyUI Version** mit automatischen Updates
-- ✅ **Vorinstallierte Custom Nodes** inkl. Impact Pack, AnimateDiff, IPAdapter Plus
-- ✅ **Alle wichtigen Dependencies** (OpenCV, Transformers, Diffusers, etc.)
-- ✅ **Persistente Daten** in `/workspace` und Network Volume Support
-- ✅ **Automatischer Build** via GitHub Actions
-- ✅ **ComfyUI Manager** für einfache Node-Installation
-
-## 🚀 Schnellstart
-
-## 📁 Repository-Struktur
+## Projektstruktur
 
 ```
-.
-├── Dockerfile                    # Haupt-Dockerfile
-├── .dockerignore                # Build-Optimierung
+comfyui-runpod/
+├── Dockerfile
 ├── .github/
 │   └── workflows/
-│       └── docker-build.yml     # GitHub Actions Workflow
+│       └── docker-build.yml
 ├── scripts/
-│   ├── fix-custom-nodes.sh     # Reparatur-Script
-│   ├── test-installation.sh    # Test-Script
-│   └── start.sh                # Startup-Script (wird ins Image kopiert)
-├── docker-compose.yml           # Für lokales Testen (optional)
-└── README.md                    # Diese Datei
+│   ├── start.sh
+│   └── install-comfyui.sh
+└── README.md
 ```
 
-### 2. DockerHub Konfiguration
+## 1. GitHub Repository erstellen
 
-1. Erstellen Sie einen Account auf [DockerHub](https://hub.docker.com/)
-2. Generieren Sie einen Access Token:
+1. Erstellen Sie ein neues Repository auf GitHub (z.B. `comfyui-runpod`)
+2. Klonen Sie es lokal oder arbeiten Sie direkt im GitHub Web-Editor
+
+## 2. DockerHub vorbereiten
+
+1. Erstellen Sie einen Account auf [hub.docker.com](https://hub.docker.com)
+2. Erstellen Sie ein Access Token:
    - Gehen Sie zu Account Settings → Security
-   - Klicken Sie auf "New Access Token"
-   - Geben Sie dem Token einen Namen (z.B. "github-actions")
-   - Wählen Sie "Read, Write, Delete" Permissions
-   - Kopieren Sie den Token (wird nur einmal angezeigt!)
+   - New Access Token erstellen
+   - Speichern Sie das Token sicher
 
-### 3. GitHub Secrets einrichten
+## 3. GitHub Secrets einrichten
 
 In Ihrem GitHub Repository:
-1. Gehen Sie zu Settings → Secrets and variables → Actions
+1. Settings → Secrets and variables → Actions
 2. Fügen Sie folgende Secrets hinzu:
    - `DOCKERHUB_USERNAME`: Ihr DockerHub Benutzername
-   - `DOCKERHUB_TOKEN`: Der Access Token von DockerHub
+   - `DOCKERHUB_TOKEN`: Das erstellte Access Token
 
-### 4. Docker Image bauen
+## 4. Dockerfile erstellen
 
-Das Image wird automatisch gebaut, wenn Sie:
-- Änderungen zum `main`/`master` Branch pushen
-- Den Workflow manuell triggern (Actions → Run workflow)
+Erstellen Sie `Dockerfile` im Root-Verzeichnis:
 
-Nach erfolgreichem Build finden Sie Ihr Image unter:
+```dockerfile
+# Basis-Image von RunPod mit CUDA Support
+FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+
+# Arbeitsverzeichnis setzen
+WORKDIR /
+
+# System-Updates und benötigte Pakete installieren
+RUN apt-get update && apt-get install -y \
+    git \
+    python3-pip \
+    python3-venv \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    wget \
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python-Pakete aktualisieren
+RUN pip install --upgrade pip setuptools wheel
+
+# Scripts kopieren
+COPY scripts/install-comfyui.sh /install-comfyui.sh
+COPY scripts/start.sh /start.sh
+RUN chmod +x /install-comfyui.sh /start.sh
+
+# ComfyUI Installation Script ausführen
+RUN /install-comfyui.sh
+
+# Ports freigeben
+EXPOSE 8188 8888
+
+# Start-Script als Entrypoint
+ENTRYPOINT ["/start.sh"]
 ```
-docker.io/IHR_DOCKERHUB_USERNAME/comfyui-runpod:latest
+
+## 5. Installation Script erstellen
+
+Erstellen Sie `scripts/install-comfyui.sh`:
+
+```bash
+#!/bin/bash
+set -e
+
+echo "Installing ComfyUI dependencies..."
+
+# Temporäre Installation für Docker Build
+TEMP_DIR="/tmp/comfyui_setup"
+mkdir -p $TEMP_DIR
+cd $TEMP_DIR
+
+# ComfyUI klonen (neueste Version)
+git clone https://github.com/comfyanonymous/ComfyUI.git
+cd ComfyUI
+
+# Python-Abhängigkeiten installieren
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install -r requirements.txt
+
+# ComfyUI Manager installieren
+cd custom_nodes
+git clone https://github.com/ltdrdata/ComfyUI-Manager.git
+cd ComfyUI-Manager
+pip install -r requirements.txt
+cd ../..
+
+# Weitere beliebte Custom Nodes vorinstallieren (optional)
+cd custom_nodes
+# ComfyUI-AnimateDiff-Evolved
+git clone https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved.git
+# ComfyUI Impact Pack
+git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git
+cd ComfyUI-Impact-Pack
+python install.py
+cd ..
+# ComfyUI Efficiency Nodes
+git clone https://github.com/jags111/efficiency-nodes-comfyui.git
+cd ../..
+
+# Cleanup
+cd /
+rm -rf $TEMP_DIR
+
+echo "ComfyUI base installation complete!"
 ```
 
-## 📦 Verwendung auf Runpod
+## 6. Start Script erstellen
 
-### Option 1: GPU Pod mit Custom Docker Image
+Erstellen Sie `scripts/start.sh`:
 
-1. Gehen Sie zu [Runpod](https://www.runpod.io/) → GPU Pods
-2. Klicken Sie auf "Deploy"
-3. Wählen Sie eine GPU (empfohlen: RTX 4090 oder besser)
-4. Unter "Container Image" geben Sie ein:
-   ```
-   IHR_DOCKERHUB_USERNAME/comfyui-runpod:latest
-   ```
-5. Container Disk: mindestens 30GB
-6. Volume Disk: 50-100GB für Modelle (optional aber empfohlen)
-7. Exposed HTTP Ports: `8188`
-8. Deploy!
+```bash
+#!/bin/bash
+set -e
 
-### Option 2: Mit Network Volume (Empfohlen)
+WORKSPACE_DIR="/workspace"
+COMFYUI_DIR="$WORKSPACE_DIR/ComfyUI"
 
-1. **Network Volume erstellen:**
-   - Storage → New Network Volume
-   - Wählen Sie eine Region
-   - 50-100GB Speicher
-   - Volume erstellen
+echo "Starting ComfyUI setup..."
 
-2. **Pod mit Volume deployen:**
-   - Bei Pod-Erstellung Volume auswählen
-   - Mount Path: `/runpod-volume`
-   - Das Image wird automatisch die Verzeichnisse einrichten
+# Workspace-Verzeichnis erstellen falls nicht vorhanden
+mkdir -p $WORKSPACE_DIR
 
-### Zugriff auf ComfyUI
+# Prüfen ob ComfyUI bereits in /workspace existiert
+if [ ! -d "$COMFYUI_DIR" ]; then
+    echo "First run detected. Setting up ComfyUI in persistent storage..."
+    
+    # ComfyUI in /workspace klonen
+    cd $WORKSPACE_DIR
+    git clone https://github.com/comfyanonymous/ComfyUI.git
+    cd $COMFYUI_DIR
+    
+    # Requirements installieren
+    pip install -r requirements.txt
+    
+    # ComfyUI Manager installieren
+    cd custom_nodes
+    git clone https://github.com/ltdrdata/ComfyUI-Manager.git
+    cd ComfyUI-Manager
+    pip install -r requirements.txt
+    
+    # Weitere Custom Nodes aus Docker Image kopieren (falls vorhanden)
+    if [ -d "/tmp/comfyui_setup/ComfyUI/custom_nodes" ]; then
+        cp -r /tmp/comfyui_setup/ComfyUI/custom_nodes/* $COMFYUI_DIR/custom_nodes/ 2>/dev/null || true
+    fi
+    
+    echo "Initial setup complete!"
+else
+    echo "ComfyUI found in persistent storage. Updating..."
+    
+    # ComfyUI updaten
+    cd $COMFYUI_DIR
+    git pull
+    
+    # Manager updaten
+    if [ -d "$COMFYUI_DIR/custom_nodes/ComfyUI-Manager" ]; then
+        cd $COMFYUI_DIR/custom_nodes/ComfyUI-Manager
+        git pull
+        pip install -r requirements.txt
+    fi
+    
+    # Custom Nodes Dependencies installieren
+    cd $COMFYUI_DIR
+    if [ -d "custom_nodes" ]; then
+        for dir in custom_nodes/*/; do
+            if [ -f "${dir}requirements.txt" ]; then
+                echo "Installing requirements for $(basename $dir)..."
+                pip install -r "${dir}requirements.txt" 2>/dev/null || true
+            fi
+            if [ -f "${dir}install.py" ]; then
+                echo "Running install.py for $(basename $dir)..."
+                cd "$dir"
+                python install.py 2>/dev/null || true
+                cd $COMFYUI_DIR
+            fi
+        done
+    fi
+fi
+
+# Modell-Verzeichnisse erstellen
+mkdir -p $COMFYUI_DIR/models/checkpoints
+mkdir -p $COMFYUI_DIR/models/vae
+mkdir -p $COMFYUI_DIR/models/loras
+mkdir -p $COMFYUI_DIR/models/embeddings
+mkdir -p $COMFYUI_DIR/models/controlnet
+mkdir -p $COMFYUI_DIR/input
+mkdir -p $COMFYUI_DIR/output
+
+# ComfyUI starten
+cd $COMFYUI_DIR
+echo "Starting ComfyUI server..."
+python main.py --listen 0.0.0.0 --port 8188
+```
+
+## 7. GitHub Actions Workflow erstellen
+
+Erstellen Sie `.github/workflows/docker-build.yml`:
+
+```yaml
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - 'scripts/**'
+      - '.github/workflows/docker-build.yml'
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: comfyui-runpod
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to DockerHub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value={{date 'YYYYMMDD-HHmmss'}}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:buildcache
+        cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+        platforms: linux/amd64
+```
+
+## 8. RunPod Setup
+
+### Network Volume erstellen (für persistente Daten):
+
+1. RunPod Dashboard → Storage → Create Network Volume
+2. Name: `comfyui-data`
+3. Size: 50-100 GB (je nach Bedarf)
+4. Region: Wählen Sie die gewünschte Region
+
+### Pod erstellen:
+
+1. RunPod Dashboard → Pods → Deploy
+2. **Container Image**: `[IHR_DOCKERHUB_USERNAME]/comfyui-runpod:latest`
+3. **Container Disk**: 20 GB (minimum)
+4. **Volume**: Wählen Sie Ihr erstelltes Network Volume
+5. **Volume Mount Path**: `/workspace`
+6. **GPU**: RTX 3090, 4090 oder A5000 empfohlen
+7. **Exposed Ports**: 8188,8888
+8. Deploy klicken
+
+## 9. Verwendung
 
 Nach dem Start:
 1. Warten Sie 2-3 Minuten für die Initialisierung
-2. In der Pod-Übersicht klicken Sie auf "Connect"
-3. Wählen Sie "Connect to HTTP Service [Port 8188]"
-4. ComfyUI öffnet sich im Browser
+2. Im RunPod Dashboard → Connect → Port 8188
+3. ComfyUI öffnet sich im Browser
+4. ComfyUI Manager ist unter dem Manager-Button verfügbar
 
-## 🔧 Fehlerbehebung
+## Wichtige Verzeichnisse im Container
 
-### Custom Nodes verschwinden nach Neustart
+- `/workspace/ComfyUI/` - Hauptverzeichnis (persistent)
+- `/workspace/ComfyUI/models/` - Modelle
+- `/workspace/ComfyUI/custom_nodes/` - Custom Nodes
+- `/workspace/ComfyUI/input/` - Input Dateien
+- `/workspace/ComfyUI/output/` - Generierte Bilder
 
-**Das Problem:** Custom Nodes werden nicht persistent gespeichert.
+## Troubleshooting
 
-**Die Lösung:** Dieses Image installiert ALLES in `/workspace`, wodurch es persistent bleibt!
-
-Falls trotzdem Probleme auftreten:
-
-1. **SSH in den Pod verbinden**
-2. **Fix-Script ausführen:**
+### Custom Nodes werden nicht erkannt:
 ```bash
-# Script herunterladen
-wget https://raw.githubusercontent.com/IHR_GITHUB/IHR_REPO/main/fix-custom-nodes.sh
-chmod +x fix-custom-nodes.sh
-
-# Ausführen mit Optionen:
-./fix-custom-nodes.sh --reinstall-all  # Alle Nodes neu installieren
-./fix-custom-nodes.sh --fix-permissions # Berechtigungen reparieren
-./fix-custom-nodes.sh --update-nodes    # Alle Nodes updaten
+# Über RunPod Web Terminal:
+cd /workspace/ComfyUI
+python main.py --reinstall-custom-nodes
 ```
 
-### ModuleNotFoundError: No module named 'cv2'
-
-**Ursache:** Impact Pack oder andere Nodes finden OpenCV nicht.
-
-**Lösung:**
-```bash
-# Via SSH verbinden und ausführen:
-pip install opencv-python opencv-contrib-python
-cd /workspace/ComfyUI/custom_nodes/ComfyUI-Impact-Pack
-python install.py
-```
-
-### Custom Nodes installieren
-
-Mit ComfyUI Manager (bereits vorinstalliert):
-1. In ComfyUI auf "Manager" klicken
-2. "Install Custom Nodes" wählen
-3. Node suchen und installieren
-
-Manuell via SSH:
-```bash
-cd /workspace/ComfyUI/custom_nodes
-git clone https://github.com/AUTHOR/NODE_NAME.git
-cd NODE_NAME
-pip install -r requirements.txt  # falls vorhanden
-```
-
-### Modelle hinzufügen
-
-Modelle können in folgende Verzeichnisse gelegt werden:
-- Checkpoints: `/workspace/ComfyUI/models/checkpoints/`
-- LoRAs: `/workspace/ComfyUI/models/loras/`
-- VAE: `/workspace/ComfyUI/models/vae/`
-- ControlNet: `/workspace/ComfyUI/models/controlnet/`
-
-Mit Network Volume bleiben diese dauerhaft erhalten.
-
-## 🔄 Updates
-
-### ComfyUI aktualisieren
-
-SSH in den Pod und ausführen:
+### Fehlende Python-Pakete:
 ```bash
 cd /workspace/ComfyUI
-git pull
-pip install -r requirements.txt --upgrade
+pip install -r custom_nodes/[NODE_NAME]/requirements.txt
 ```
 
-### Docker Image neu bauen
+### ComfyUI startet nicht:
+```bash
+# Logs prüfen
+tail -f /workspace/comfyui.log
 
-1. Ändern Sie die `Dockerfile`
-2. Pushen Sie zu GitHub
-3. GitHub Actions baut automatisch das neue Image
-
-## 📊 Ressourcenverbrauch
-
-- **Minimale GPU**: RTX 3060 (12GB VRAM)
-- **Empfohlene GPU**: RTX 4090 (24GB VRAM)
-- **Container Disk**: 30-50GB
-- **Network Volume**: 50-100GB für Modelle
-- **RAM**: 16GB+ empfohlen
-
-## 🛠️ Anpassungen
-
-### Weitere Custom Nodes hinzufügen
-
-Bearbeiten Sie die `Dockerfile` und fügen Sie im Abschnitt "Custom Nodes" hinzu:
-```dockerfile
-RUN cd /workspace/ComfyUI/custom_nodes && \
-    git clone https://github.com/AUTHOR/NEUER_NODE.git
+# Manuell starten
+cd /workspace/ComfyUI
+python main.py --listen 0.0.0.0 --port 8188
 ```
 
-### Python Packages hinzufügen
+## Best Practices
 
-In der `Dockerfile` im Abschnitt "Python-Abhängigkeiten":
-```dockerfile
-RUN pip install PACKAGE_NAME
+1. **Modelle**: Große Modelle (Checkpoints) im Network Volume speichern
+2. **Backups**: Regelmäßig wichtige Workflows exportieren
+3. **Updates**: ComfyUI Manager für Updates verwenden
+4. **Performance**: GPU mit mindestens 12GB VRAM für SDXL Modelle
+
+## Kosten-Optimierung
+
+- Pod nach Verwendung stoppen (nicht terminieren)
+- Network Volume behält alle Daten
+- Bei erneutem Start ist alles sofort verfügbar
+- Community Cloud für Tests, Secure Cloud für Produktion
+
+## Erweiterte Konfiguration
+
+### Automatisches Modell-Download hinzufügen:
+
+In `scripts/start.sh` vor dem Start von ComfyUI:
+
+```bash
+# Beispiel: SDXL Base Modell herunterladen
+if [ ! -f "$COMFYUI_DIR/models/checkpoints/sd_xl_base_1.0.safetensors" ]; then
+    wget -P $COMFYUI_DIR/models/checkpoints/ \
+        https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors
+fi
 ```
 
-## 📝 Lizenz
-
-MIT License - Frei verwendbar
-
-## 🤝 Support
-
-Bei Problemen:
-1. Prüfen Sie die Logs in Runpod (Pod → Logs)
-2. SSH-Verbindung für Debugging
-3. ComfyUI Manager für Node-Probleme nutzen
-
-## Wichtige Hinweise
-
-- Das erste Starten kann 5-10 Minuten dauern
-- Network Volumes sind für dauerhafte Modellspeicherung empfohlen
-- Bei Serverless-Deployments andere Images verwenden (runpod-worker-comfy)
-- Regelmäßige Backups wichtiger Workflows empfohlen
+Diese Lösung stellt sicher, dass:
+- ComfyUI immer in `/workspace` installiert wird (persistent)
+- Custom Nodes persistent bleiben
+- Der Manager vorinstalliert ist
+- Updates automatisch durchgeführt werden
+- Alle Daten zwischen Sessions erhalten bleiben
