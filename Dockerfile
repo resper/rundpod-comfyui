@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     wget \
     curl \
+    nano \
+    vim \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
