@@ -1,0 +1,74 @@
+# Git
+.git
+.gitignore
+.github
+
+# Documentation
+README.md
+LICENSE
+CHANGELOG.md
+docs/
+
+# Development
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+.venv
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov/
+
+# Docker
+docker-compose.yml
+docker-compose.yaml
+Dockerfile.*
+.dockerignore
+
+# Local files
+workspace/
+models/
+output/
+input/
+custom_nodes/
+*.log
+*.pid
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Models (should not be in repo)
+*.ckpt
+*.safetensors
+*.pt
+*.pth
+*.bin
