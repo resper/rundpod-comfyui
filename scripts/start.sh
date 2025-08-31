@@ -36,14 +36,44 @@ if [ ! -d "$COMFYUI_DIR" ]; then
 else
     echo "ComfyUI found in persistent storage. Updating..."
     
-    # ComfyUI updaten
+    # ComfyUI updaten mit Konflikt-Behandlung
     cd $COMFYUI_DIR
-    git pull
     
-    # Manager updaten
+    # Git-Status prüfen
+    if git diff --quiet && git diff --staged --quiet; then
+        # Keine lokalen Änderungen, normales Update
+        echo "No local changes detected, updating ComfyUI..."
+        git pull
+    else
+        echo "Local changes detected. Handling git conflicts..."
+        
+        # Option 1: Lokale Änderungen speichern und Update durchführen
+        # (Änderungen werden gesichert aber nicht angewendet)
+        git stash push -m "Auto-stash before update $(date +%Y%m%d-%H%M%S)"
+        git pull
+        
+        # Optional: Versuchen, die Änderungen wieder anzuwenden
+        # git stash pop || echo "Could not reapply local changes, they are saved in stash"
+        
+        # Option 2 (Alternative - aggressiver): Lokale Änderungen verwerfen
+        # echo "Discarding local changes for clean update..."
+        # git reset --hard
+        # git clean -fd
+        # git pull
+    fi
+    
+    # Manager updaten mit gleicher Logik
     if [ -d "$COMFYUI_DIR/custom_nodes/ComfyUI-Manager" ]; then
         cd $COMFYUI_DIR/custom_nodes/ComfyUI-Manager
-        git pull
+        
+        if git diff --quiet && git diff --staged --quiet; then
+            git pull
+        else
+            echo "Stashing ComfyUI-Manager changes..."
+            git stash push -m "Manager auto-stash $(date +%Y%m%d-%H%M%S)"
+            git pull
+        fi
+        
         pip install -r requirements.txt
     fi
     
